@@ -74,6 +74,11 @@ void VariableLookupAnalysis::emitEnvLivenessWarning(
   }
 }
 
+// Known owners of embedded scopes. List of.
+static const char *KnownWithOwners[] = {
+    "lib.maintainers", "lib.licenses", "lib.platforms"
+};
+
 void VariableLookupAnalysis::lookupVar(const ExprVar &Var,
                                        const std::shared_ptr<EnvNode> &Env) {
   const auto &Name = Var.id().name();
@@ -103,6 +108,26 @@ void VariableLookupAnalysis::lookupVar(const ExprVar &Var,
     Results.insert({&Var, LookupResult{LookupResultKind::Defined, Def}});
   } else if (!WithEnvs.empty()) { // comes from enclosed "with" expressions.
     for (const auto *WithEnv : WithEnvs) {
+      // If name of the env is one of the "known" names, don't mark the rest of
+      // with envs alive.
+      bool IsKnown = false;
+      for (const auto &Child : WithEnv->syntax()->children()) {
+        if (!Child)
+          continue;
+        if (Child->kind() == Node::NK_ExprWith) {
+            const auto &With = static_cast<const ExprWith &>(*Child);
+
+            for (const char *KnownName : KnownWithOwners) {
+              if (With.fullPath() == KnownName) {
+                IsKnown = true;
+                break;
+              }
+            }
+        }
+      }
+      if (IsKnown)
+        continue;
+
       Def = WithDefs.at(WithEnv->syntax());
       Def->usedBy(Var);
     }

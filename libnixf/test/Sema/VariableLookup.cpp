@@ -338,4 +338,18 @@ with builtins;
   ASSERT_EQ(Diags.size(), 0);
 }
 
+TEST_F(VLATest, Issue606_NestedWith_KnownOwners) {
+  const char *Src = R"(
+with builtins;
+  with lib.maintainers;
+    concatLists
+  )";
+
+  std::shared_ptr<Node> AST = parse(Src, Diags);
+  VariableLookupAnalysis VLA(Diags);
+  VLA.runOnAST(*AST);
+
+  ASSERT_EQ(Diags.size(), 1);
+}
+
 } // namespace
