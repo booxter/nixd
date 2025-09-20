@@ -19,6 +19,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace nixd {
 class AttrSetClient;
@@ -169,6 +171,8 @@ private:
 
   std::unique_ptr<nixd::AttrSetClientProc> NixpkgsEval;
   nixd::AttrSetClient *NixpkgsClient = nullptr;
+  std::unordered_map<std::string, std::unordered_set<std::string>>
+      NixpkgsKnownAttrs;
 
 public:
   VariableLookupAnalysis(std::vector<Diagnostic> &Diags);
