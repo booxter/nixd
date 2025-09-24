@@ -1,6 +1,6 @@
-libnixf_deps = [ boost, nlohmann_json ]
+libnixf_inc = include_directories('../include', '../../common/include')
 
-libnixf_inc = include_directories('../include')
+libnixf_deps = [ boost, nlohmann_json, nixd_common ]
 
 python3 = find_program('python3')
 

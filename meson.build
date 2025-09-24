@@ -65,6 +65,9 @@ lit = find_program('lit', required: false)
 pkgconfig = import('pkgconfig')
 
 
+subdir('nixd/lspserver')
+subdir('common')
+
 subdir('libnixf/src')
 subdir('libnixf/tools')
 subdir('libnixf/test')
@@ -79,9 +82,7 @@ nix_flake = dependency('nix-flake')
 subdir('libnixt/lib')
 subdir('libnixt/test')
 
-subdir('nixd/lspserver')
 subdir('nixd/lib')
 subdir('nixd/tools')
-
 
 

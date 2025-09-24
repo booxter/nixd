@@ -1,6 +1,6 @@
-libnixd_include = include_directories('../include')
+libnixd_include = include_directories('../include', '../../common/include')
 
-libnixd_deps = [ nixd_lsp_server, nixf, llvm, nixt ]
+libnixd_deps = [ nixd_common, nixf, llvm, nixt ]
 
 libnixd_lib = library(
     'nixd',
@@ -26,16 +26,11 @@ libnixd_lib = library(
     'Controller/SemanticTokens.cpp',
     'Controller/Support.cpp',
     'Controller/TextDocumentSync.cpp',
-    'Eval/AttrSetClient.cpp',
     'Eval/AttrSetProvider.cpp',
     'Eval/Launch.cpp',
-    'Protocol/AttrSet.cpp',
     'Protocol/Protocol.cpp',
-    'Support/AutoCloseFD.cpp',
     'Support/AutoRemoveShm.cpp',
-    'Support/ForkPiped.cpp',
     'Support/JSON.cpp',
-    'Support/StreamProc.cpp',
     dependencies: libnixd_deps,
     include_directories: libnixd_include,
     install: true

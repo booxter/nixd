@@ -3,6 +3,9 @@
 #include "nixf/Basic/Nodes/Attrs.h"
 #include "nixf/Basic/Nodes/Lambda.h"
 
+#include "nixd/Eval/AttrSetClient.h"
+#include "nixd/Eval/Spawn.h"
+
 using namespace nixf;
 
 namespace {
@@ -475,7 +478,13 @@ void VariableLookupAnalysis::runOnAST(const Node &Root) {
 }
 
 VariableLookupAnalysis::VariableLookupAnalysis(std::vector<Diagnostic> &Diags)
-    : Diags(Diags) {}
+    : Diags(Diags) {
+  spawnAttrSetEval({}, NixpkgsEval);
+  if (NixpkgsEval)
+    NixpkgsClient = NixpkgsEval->client();
+}
+
+VariableLookupAnalysis::~VariableLookupAnalysis() = default;
 
 const EnvNode *VariableLookupAnalysis::env(const Node *N) const {
   if (!Envs.contains(N))
