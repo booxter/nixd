@@ -3,6 +3,17 @@
 #include "nixf/Basic/Nodes/Attrs.h"
 #include "nixf/Basic/Nodes/Lambda.h"
 
+#include "nixd/Eval/AttrSetClient.h"
+#include "nixd/Eval/Spawn.h"
+#include "nixd/Protocol/AttrSet.h"
+
+#include <llvm/ADT/StringRef.h>
+#include <llvm/Support/Error.h>
+
+#include <array>
+#include <semaphore>
+#include <string_view>
+
 using namespace nixf;
 
 namespace {
@@ -74,6 +85,23 @@ void VariableLookupAnalysis::emitEnvLivenessWarning(
   }
 }
 
+static constexpr std::array<std::string_view, 2> KnownIdioms = {
+    "pkgs",
+    "lib",
+};
+
+std::vector<std::string> splitScope(std::string_view Path) {
+  std::vector<std::string> Scope;
+  llvm::StringRef Remaining(Path);
+  while (!Remaining.empty()) {
+    auto [Head, Tail] = Remaining.split('.');
+    if (!Head.empty())
+      Scope.emplace_back(Head.str());
+    Remaining = Tail;
+  }
+  return Scope;
+}
+
 void VariableLookupAnalysis::lookupVar(const ExprVar &Var,
                                        const std::shared_ptr<EnvNode> &Env) {
   const auto &Name = Var.id().name();
@@ -91,8 +119,9 @@ void VariableLookupAnalysis::lookupVar(const ExprVar &Var,
     //        with builtins;
     //            generators <--- this variable may come from "lib" | "builtins"
     //
-    // We cannot determine where it precisely come from, thus mark all Envs
-    // alive.
+    // In general, we cannot determine where it precisely come from, thus mark
+    // all Envs alive. (We'll make an attempt to resolve the variable with
+    // nixpkgs client below.)
     if (CurEnv->isWith()) {
       WithEnvs.emplace_back(CurEnv);
     }
@@ -105,6 +134,30 @@ void VariableLookupAnalysis::lookupVar(const ExprVar &Var,
     for (const auto *WithEnv : WithEnvs) {
       Def = WithDefs.at(WithEnv->syntax());
       Def->usedBy(Var);
+
+      // Attempt to resolve the variable with nixpkgs client.
+      bool IsKnown = false;
+      const auto &With = static_cast<const ExprWith &>(*WithEnv->syntax());
+
+      auto FullPath = With.fullPath();
+      llvm::StringRef FullPathRef(FullPath);
+      for (std::string_view Idiom : KnownIdioms) {
+        if (!FullPathRef.starts_with(Idiom))
+          continue;
+        if (FullPathRef.size() > Idiom.size() &&
+            FullPathRef[Idiom.size()] != '.')
+          continue;
+        if (!NixpkgsKnownAttrs.contains(FullPath))
+          ensureNixpkgsKnownAttrsCached(FullPath);
+
+        if (auto It = NixpkgsKnownAttrs.find(FullPath);
+            It != NixpkgsKnownAttrs.end()) {
+          IsKnown = It->second.contains(Name);
+        }
+        break;
+      }
+      if (IsKnown)
+        break;
     }
     Results.insert({&Var, LookupResult{LookupResultKind::FromWith, Def}});
   } else {
@@ -475,7 +528,50 @@ void VariableLookupAnalysis::runOnAST(const Node &Root) {
 }
 
 VariableLookupAnalysis::VariableLookupAnalysis(std::vector<Diagnostic> &Diags)
-    : Diags(Diags) {}
+    : Diags(Diags) {
+  spawnAttrSetEval({}, NixpkgsEval);
+  if (NixpkgsEval)
+    NixpkgsClient = NixpkgsEval->client();
+  if (NixpkgsClient)
+    NixpkgsClient->setLoggingEnabled(false);
+}
+
+void VariableLookupAnalysis::ensureNixpkgsKnownAttrsCached(
+    const std::string &FullPath) {
+  if (!NixpkgsClient || NixpkgsKnownAttrs.contains(FullPath))
+    return;
+
+  if (NixpkgsKnownAttrs.empty()) {
+    std::binary_semaphore Ready(0);
+    NixpkgsClient->evalExpr(
+        "import <nixpkgs> { }",
+        [&Ready](llvm::Expected<std::optional<std::string>> Resp) {
+          Ready.release();
+        });
+    Ready.acquire();
+  }
+
+  nixd::AttrPathCompleteParams Params;
+  Params.Scope = splitScope(FullPath);
+  Params.Prefix = "";
+  Params.MaxItems = 0;
+
+  std::binary_semaphore Ready(0);
+  std::vector<std::string> Names;
+  NixpkgsClient->attrpathComplete(
+      Params,
+      [&Names, &Ready](llvm::Expected<nixd::AttrPathCompleteResponse> Resp) {
+        if (Resp)
+          Names = *Resp;
+        Ready.release();
+      });
+  Ready.acquire();
+
+  auto &Bucket = NixpkgsKnownAttrs[FullPath];
+  Bucket.insert(Names.begin(), Names.end());
+}
+
+VariableLookupAnalysis::~VariableLookupAnalysis() = default;
 
 const EnvNode *VariableLookupAnalysis::env(const Node *N) const {
   if (!Envs.contains(N))
