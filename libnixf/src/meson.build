@@ -1,4 +1,4 @@
-libnixf_inc = include_directories('../include', '../../common/include')
+libnixf_inc = include_directories('../include')
 
 libnixf_deps = [ boost, nlohmann_json, nixd_common ]
 
@@ -77,3 +77,5 @@ nixf = declare_dependency(
 
 
 install_subdir('../include/nixf', install_dir: 'include')
+
+meson.override_dependency('nixf', nixf)

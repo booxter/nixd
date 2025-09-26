@@ -1,4 +1,4 @@
-libnixd_include = include_directories('../include', '../../common/include')
+libnixd_include = include_directories('../include')
 
 libnixd_deps = [ nixd_common, nixf, llvm, nixt ]
 
