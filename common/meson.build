@@ -50,16 +50,19 @@ endif
 
 llvm = dependency('llvm')
 nixd_lsp_server = dependency('nixd-lspserver', fallback : ['nixd-lspserver', 'nixd_lsp_server'])
+nixt = dependency('nixt', fallback : ['libnixt', 'nixt'])
 
 common_inc = include_directories('include')
 
-common_deps = [nixd_lsp_server, llvm]
+common_deps = [nixd_lsp_server, llvm, nixt]
 
 nixd_common_lib = library(
   'nixd-common',
   'lib/Eval/AttrSetClient.cpp',
+  'lib/Eval/AttrSetProvider.cpp',
   'lib/Eval/Spawn.cpp',
   'lib/Protocol/AttrSet.cpp',
+  'lib/CommandLine/Options.cpp',
   'lib/Support/AutoCloseFD.cpp',
   'lib/Support/ForkPiped.cpp',
   'lib/Support/StreamProc.cpp',
@@ -67,6 +70,8 @@ nixd_common_lib = library(
   dependencies : common_deps,
   install : true,
 )
+
+subdir('tools')
 
 nixd_common = declare_dependency(
   include_directories : common_inc,
