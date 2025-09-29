@@ -12,7 +12,6 @@
 
 #include <array>
 #include <semaphore>
-#include <sstream>
 #include <string_view>
 
 using namespace nixf;
@@ -86,16 +85,22 @@ void VariableLookupAnalysis::emitEnvLivenessWarning(
   }
 }
 
-// Known owners of embedded scopes. List of.
-static const char *KnownWithOwners[] = {
-    "lib.maintainers", "lib.licenses", "lib.platforms"
-};
-
-// TODO: De-duplicate with AST.h?
 static constexpr std::array<std::string_view, 2> KnownIdioms = {
     "pkgs",
     "lib",
 };
+
+std::vector<std::string> splitScope(std::string_view Path) {
+  std::vector<std::string> Scope;
+  llvm::StringRef Remaining(Path);
+  while (!Remaining.empty()) {
+    auto [Head, Tail] = Remaining.split('.');
+    if (!Head.empty())
+      Scope.emplace_back(Head.str());
+    Remaining = Tail;
+  }
+  return Scope;
+}
 
 void VariableLookupAnalysis::lookupVar(const ExprVar &Var,
                                        const std::shared_ptr<EnvNode> &Env) {
@@ -142,6 +147,9 @@ void VariableLookupAnalysis::lookupVar(const ExprVar &Var,
         if (FullPathRef.size() > Idiom.size() &&
             FullPathRef[Idiom.size()] != '.')
           continue;
+        if (!NixpkgsKnownAttrs.contains(FullPath))
+          ensureNixpkgsKnownAttrsCached(FullPath);
+
         if (auto It = NixpkgsKnownAttrs.find(FullPath);
             It != NixpkgsKnownAttrs.end()) {
           IsKnown = It->second.contains(Name);
@@ -524,50 +532,40 @@ VariableLookupAnalysis::VariableLookupAnalysis(std::vector<Diagnostic> &Diags)
   spawnAttrSetEval({}, NixpkgsEval);
   if (NixpkgsEval)
     NixpkgsClient = NixpkgsEval->client();
+}
 
-  if (NixpkgsClient) {
-    {
-      std::binary_semaphore Ready(0);
-      NixpkgsClient->evalExpr(
-          "import <nixpkgs> { }",
-          [&Ready](llvm::Expected<std::optional<std::string>> Resp) {
-            Ready.release();
-          });
-      Ready.acquire();
-    }
+void VariableLookupAnalysis::ensureNixpkgsKnownAttrsCached(
+    const std::string &FullPath) {
+  if (!NixpkgsClient || NixpkgsKnownAttrs.contains(FullPath))
+    return;
 
-    for (const char *KnownName : KnownWithOwners) {
-      std::vector<std::string> Scope;
-      {
-        std::stringstream SS(KnownName);
-        std::string Segment;
-        while (std::getline(SS, Segment, '.')) {
-          if (!Segment.empty())
-            Scope.emplace_back(Segment);
-        }
-      }
-
-      nixd::AttrPathCompleteParams Params;
-      Params.Scope = Scope;
-      Params.Prefix = "";
-      Params.MaxItems = 0;
-
-      std::binary_semaphore Ready(0);
-      std::vector<std::string> Names;
-      NixpkgsClient->attrpathComplete(
-          Params, [&Names, &Ready](llvm::Expected<nixd::AttrPathCompleteResponse> Resp) {
-            if (Resp)
-              Names = *Resp;
-            Ready.release();
-          });
-      Ready.acquire();
-
-      if (!Names.empty()) {
-        auto &Bucket = NixpkgsKnownAttrs[KnownName];
-        Bucket.insert(Names.begin(), Names.end());
-      }
-    }
+  if (NixpkgsKnownAttrs.empty()) {
+    std::binary_semaphore Ready(0);
+    NixpkgsClient->evalExpr(
+        "import <nixpkgs> { }",
+        [&Ready](llvm::Expected<std::optional<std::string>> Resp) {
+          Ready.release();
+        });
+    Ready.acquire();
   }
+
+  nixd::AttrPathCompleteParams Params;
+  Params.Scope = splitScope(FullPath);
+  Params.Prefix = "";
+  Params.MaxItems = 0;
+
+  std::binary_semaphore Ready(0);
+  std::vector<std::string> Names;
+  NixpkgsClient->attrpathComplete(
+      Params, [&Names, &Ready](llvm::Expected<nixd::AttrPathCompleteResponse> Resp) {
+        if (Resp)
+          Names = *Resp;
+        Ready.release();
+      });
+  Ready.acquire();
+
+  auto &Bucket = NixpkgsKnownAttrs[FullPath];
+  Bucket.insert(Names.begin(), Names.end());
 }
 
 VariableLookupAnalysis::~VariableLookupAnalysis() = default;

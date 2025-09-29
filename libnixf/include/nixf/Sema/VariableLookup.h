@@ -173,6 +173,7 @@ private:
   nixd::AttrSetClient *NixpkgsClient = nullptr;
   std::unordered_map<std::string, std::unordered_set<std::string>>
       NixpkgsKnownAttrs;
+  void ensureNixpkgsKnownAttrsCached(const std::string &FullPath);
 
 public:
   VariableLookupAnalysis(std::vector<Diagnostic> &Diags);
