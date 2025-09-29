@@ -7,10 +7,13 @@
 #include "nixd/Eval/Spawn.h"
 #include "nixd/Protocol/AttrSet.h"
 
+#include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Error.h>
 
+#include <array>
 #include <semaphore>
 #include <sstream>
+#include <string_view>
 
 using namespace nixf;
 
@@ -88,6 +91,12 @@ static const char *KnownWithOwners[] = {
     "lib.maintainers", "lib.licenses", "lib.platforms"
 };
 
+// TODO: De-duplicate with AST.h?
+static constexpr std::array<std::string_view, 2> KnownIdioms = {
+    "pkgs",
+    "lib",
+};
+
 void VariableLookupAnalysis::lookupVar(const ExprVar &Var,
                                        const std::shared_ptr<EnvNode> &Env) {
   const auto &Name = Var.id().name();
@@ -105,8 +114,9 @@ void VariableLookupAnalysis::lookupVar(const ExprVar &Var,
     //        with builtins;
     //            generators <--- this variable may come from "lib" | "builtins"
     //
-    // We cannot determine where it precisely come from, thus mark all Envs
-    // alive.
+    // In general, we cannot determine where it precisely come from, thus mark
+    // all Envs alive. (We'll make an attempt to resolve the variable with
+    // nixpkgs client below.)
     if (CurEnv->isWith()) {
       WithEnvs.emplace_back(CurEnv);
     }
@@ -120,20 +130,23 @@ void VariableLookupAnalysis::lookupVar(const ExprVar &Var,
       Def = WithDefs.at(WithEnv->syntax());
       Def->usedBy(Var);
 
-      // If name of the env is one of the "known" names, don't mark the rest of
-      // with envs alive.
+      // Attempt to resolve the variable with nixpkgs client.
       bool IsKnown = false;
       const auto &With = static_cast<const ExprWith &>(*WithEnv->syntax());
 
       auto FullPath = With.fullPath();
-      for (const char *KnownName : KnownWithOwners) {
-        if (FullPath == KnownName) {
-          if (auto It = NixpkgsKnownAttrs.find(FullPath);
-              It != NixpkgsKnownAttrs.end()) {
-            IsKnown = It->second.contains(Name);
-          }
-          break;
+      llvm::StringRef FullPathRef(FullPath);
+      for (std::string_view Idiom : KnownIdioms) {
+        if (!FullPathRef.starts_with(Idiom))
+          continue;
+        if (FullPathRef.size() > Idiom.size() &&
+            FullPathRef[Idiom.size()] != '.')
+          continue;
+        if (auto It = NixpkgsKnownAttrs.find(FullPath);
+            It != NixpkgsKnownAttrs.end()) {
+          IsKnown = It->second.contains(Name);
         }
+        break;
       }
       if (IsKnown)
         break;
