@@ -112,7 +112,8 @@ void OutboundPort::reply(llvm::json::Value ID,
 
 void OutboundPort::sendMessage(llvm::json::Value Message) {
   // Make sure our outputs are not interleaving between messages (json)
-  vlog(">>> {0}", Message);
+  if (LoggingEnabled)
+    vlog(">>> {0}", Message);
   std::lock_guard<std::mutex> Guard(Mutex);
   OutputBuffer.clear();
   llvm::raw_svector_ostream SVecOS(OutputBuffer);
@@ -320,7 +321,8 @@ void InboundPort::loop(MessageHandler &Handler) {
 
   for (;;) {
     if (auto Message = readMessage(Buffer)) {
-      vlog("<<< {0}", jsonToString(*Message));
+      if (LoggingEnabled)
+        vlog("<<< {0}", jsonToString(*Message));
       if (!dispatch(*Message, Handler))
         return;
     } else {

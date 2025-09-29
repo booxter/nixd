@@ -532,6 +532,8 @@ VariableLookupAnalysis::VariableLookupAnalysis(std::vector<Diagnostic> &Diags)
   spawnAttrSetEval({}, NixpkgsEval);
   if (NixpkgsEval)
     NixpkgsClient = NixpkgsEval->client();
+  if (NixpkgsClient)
+    NixpkgsClient->setLoggingEnabled(false);
 }
 
 void VariableLookupAnalysis::ensureNixpkgsKnownAttrsCached(
