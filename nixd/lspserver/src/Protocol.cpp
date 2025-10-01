@@ -1018,7 +1018,7 @@ llvm::json::Value toJSON(const CompletionItem &CI) {
 bool fromJSON(const llvm::json::Value &Params, CompletionItem &R,
               llvm::json::Path P) {
   llvm::json::ObjectMapper O(Params, P);
-  int Kind;
+  int Kind = 0;
   if (!O.mapOptional("kind", Kind))
     return false;
   R.kind = static_cast<CompletionItemKind>(Kind);
