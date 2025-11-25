@@ -187,12 +187,6 @@ public:
         Parts.emplace_back(Var.id().name());
         break;
       }
-      case Node::NK_AttrPath: {
-        const auto &Path = static_cast<const AttrPath &>(*Child);
-        for (const auto &Name : Path.names())
-          Parts.emplace_back(Name->id()->name());
-        break;
-      }
       default:
         break;
       }
